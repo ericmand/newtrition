@@ -1,109 +1,286 @@
-import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'dart:io';
 
-void main() => runApp(new MyApp());
+import 'package:flutter/material.dart';
+import 'package:flutter_circular_chart/flutter_circular_chart.dart';
+
+void main() {
+  runApp(new MyApp());
+}
+
+// Scanner output UPC codes
+// UPC fetch:
+  // input: UPC, outputs: ndbno
+  // data['list']['item'][0]['ndbno']
+// input: ndbno, outputs: food object that contains the 10 numbers
+
+// Text search input string text
+// input: string, output: list of foods that relates
+// input: ndbno, output: food object
+
+
+
+class Food {
+  String name;
+  int water;
+  int protein;
+  int fat;
+  int carbs;
+}
 
 class MyApp extends StatelessWidget {
-  // This widget is the root of your application.
   @override
   Widget build(BuildContext context) {
     return new MaterialApp(
-      title: 'Flutter Demo',
-      theme: new ThemeData(
-        // This is the theme of your application.
-        //
-        // Try running your application with "flutter run". You'll see the
-        // application has a blue toolbar. Then, without quitting the app, try
-        // changing the primarySwatch below to Colors.green and then invoke
-        // "hot reload" (press "r" in the console where you ran "flutter run",
-        // or press Run > Flutter Hot Reload in IntelliJ). Notice that the
-        // counter didn't reset back to zero; the application is not restarted.
-        primarySwatch: Colors.blue,
-      ),
-      home: new MyHomePage(title: 'Flutter Demo Home Page'),
+      home: new MyHomePage(),
     );
   }
 }
 
 class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key, this.title}) : super(key: key);
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
+  MyHomePage({Key key}) : super(key: key);
 
   @override
   _MyHomePageState createState() => new _MyHomePageState();
 }
 
 class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
+  var _ipAddress = 'Unknown';
 
-  void _incrementCounter() {
+  final GlobalKey<AnimatedCircularChartState> _chartKey =
+  new GlobalKey<AnimatedCircularChartState>();
+
+  List<CircularStackEntry> data = <CircularStackEntry>[
+    new CircularStackEntry(
+      <CircularSegmentEntry>[
+        new CircularSegmentEntry(500.0, Colors.blue[200], rankKey: 'Water'),
+        new CircularSegmentEntry(1000.0, Colors.red[200], rankKey: 'Fat'),
+        new CircularSegmentEntry(2000.0, Colors.green[200], rankKey: 'Protein'),
+        new CircularSegmentEntry(1000.0, Colors.yellow[200], rankKey: 'Carbs'),
+      ],
+      rankKey: 'Quarterly Profits',
+    ),
+  ];
+
+  void _cycleSamples() {
+    List<CircularStackEntry> nextData = <CircularStackEntry>[
+      new CircularStackEntry(
+        <CircularSegmentEntry>[
+          new CircularSegmentEntry(1500.0, Colors.red[200], rankKey: 'Q1'),
+          new CircularSegmentEntry(750.0, Colors.green[200], rankKey: 'Q2'),
+          new CircularSegmentEntry(2000.0, Colors.blue[200], rankKey: 'Q3'),
+          new CircularSegmentEntry(1000.0, Colors.yellow[200], rankKey: 'Q4'),
+        ],
+        rankKey: 'Quarterly Profits',
+      ),
+    ];
     setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
+      _chartKey.currentState.updateData(nextData);
+    });
+  }
+
+  _upc_lookup(upc) {
+    var data = _upc_fetch(upc);
+    print(data);
+    setState(() {
+      _ipAddress = data.toString();
+    });
+    //return data //['list']['item'][0]['ndbno'];
+  }
+
+  _upc_fetch(upc) async {
+    var uri = new Uri.https('api.nal.usda.gov','/ndb/search/', {
+      'q': '791083622813',
+      'format': 'json',
+      'api_key': 'RCnEQqU9pmNEbaEzE5SQxQQ1VHbDZhQJYCvzAOkJ',
+    });
+    var httpClient = new HttpClient();
+
+    String result;
+    var request = await httpClient.getUrl(uri);//Uri.parse(url));
+    var response = await request.close();
+    if (response.statusCode == HttpStatus.OK) {
+      var json = await response.transform(UTF8.decoder).join();
+      return JSON.decode(json);
+    } else { return 'fail';}
+  }
+
+  _getIPAddress() async {
+    //var url = 'https://api.nal.usda.gov/ndb/reports/?ndbno=01009&type=f&format=json&api_key=DEMO_KEY';
+    var uri = new Uri.https('api.nal.usda.gov','/ndb/reports/', {
+      'ndbno': '01009',
+      'format': 'json',
+      'type': 'f',
+      'api_key': 'DEMO_KEY',//'RCnEQqU9pmNEbaEzE5SQxQQ1VHbDZhQJYCvzAOkJ',
+    });
+    var httpClient = new HttpClient();
+
+    String result;
+    try {
+      var request = await httpClient.getUrl(uri);//Uri.parse(url));
+      var response = await request.close();
+      if (response.statusCode == HttpStatus.OK) {
+        var json = await response.transform(UTF8.decoder).join();
+        var data = JSON.decode(json);
+        result = data['report']['food']['nutrients'][0]['name'];
+      } else {
+
+        result =
+        'Error getting IP address:\nHttp status ${response.statusCode}';
+      }
+    } catch (exception) {
+      print(exception);
+      result = 'Failed getting IP address';
+    }
+
+    // If the widget was removed from the tree while the message was in flight,
+    // we want to discard the reply rather than calling setState to update our
+    // non-existent appearance.
+    if (!mounted) return;
+
+    setState(() {
+      _ipAddress = result;
     });
   }
 
   @override
   Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
+    var spacer = new SizedBox(height: 32.0);
+
     return new Scaffold(
       appBar: new AppBar(
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: new Text(widget.title),
+        title: new Text('Food Facts'),
+        actions: [
+          new IconButton( // action button
+            icon: new Icon(Icons.search),
+            onPressed: () {},
+          ),
+        ]
       ),
       body: new Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
         child: new Column(
-          // Column is also layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Invoke "debug paint" (press "p" in the console where you ran
-          // "flutter run", or select "Toggle Debug Paint" from the Flutter tool
-          // window in IntelliJ) to see the wireframe for each widget.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
           mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            new Text(
-              'You have pushed the button this many times:',
+          children: [
+            new Text('$_ipAddress.'),
+            spacer,
+            new RaisedButton(
+              onPressed: _cycleSamples,
+              child: new Text('Get IP address'),
             ),
-            new Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.display1,
+            new AnimatedCircularChart(
+              key: _chartKey,
+              size: const Size(300.0, 300.0),
+              initialChartData: data,
+              chartType: CircularChartType.Pie,
             ),
           ],
         ),
       ),
       floatingActionButton: new FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: new Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+          child: new Icon(Icons.scanner),
+          onPressed: _upc_lookup('791083622813'),
+      ),
     );
   }
 }
+
+/*
+import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
+import 'package:barcode_scan/barcode_scan.dart';
+import 'package:flutter/material.dart';
+
+void main() => runApp(new MyApp());
+
+class MyApp extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return new MaterialApp(
+      title: 'Food Facts',
+      theme: new ThemeData(
+        primarySwatch: Colors.blue,
+      ),
+      home: new ButtonPage(),
+    );
+  }
+}
+
+Future scan() async {
+  String barcode = await BarcodeScanner.scan();
+  //setState(() => this.barcode = barcode);
+}
+
+get() async {
+  var httpClient = new HttpClient();
+  var uri = new Uri.http(
+      'example.com', '/path1/path2', {'param1': '42', 'param2': 'foo'});
+  var request = await httpClient.getUrl(uri);
+  var response = await request.close();
+  var responseBody = await response.transform(UTF8.decoder).join();
+}
+
+Future getListFoods() async {
+  var httpClient = new HttpClient();
+  var uri = new Uri.https('api.nal.usda.gov','/ndb/search', {
+    //'http://example.com/', 'path1/path2', {'param1': '42', 'param2': 'foo'});
+    'format': 'json',
+    'q': 'query',
+    'sort': 'n',
+    'max': '25',
+    'offset': '0',
+    'api_key': 'RCnEQqU9pmNEbaEzE5SQxQQ1VHbDZhQJYCvzAOkJ'
+  });
+  var request = await httpClient.getUrl(uri);
+  var response = await request.close();
+  var responseBody = await response.transform(UTF8.decoder).join();
+}
+
+Future getFoodDetails() async {
+  var httpClient = new HttpClient();
+  var uri = new Uri.https('api.nal.usda.gov','/ndb/v2/reports', {
+    'ndbno': '01009',
+    'format': 'json',
+    'type': 'f',
+    'api_key': 'RCnEQqU9pmNEbaEzE5SQxQQ1VHbDZhQJYCvzAOkJ'
+  });
+  var request = await httpClient.getUrl(uri);
+  var response = await request.close();
+  var responseBody = await response.transform(UTF8.decoder).join();
+  print(responseBody);
+}
+
+search() {
+  var item = getFoodDetails();
+}
+//https://api.nal.usda.gov/ndb/V2/reports?ndbno=01009&ndbno=45202763&ndbno=35193&type=f&format=json&api_key=DEMO_KEY
+
+class ButtonPage extends StatelessWidget {
+  @override
+  Widget build(BuildContext context) {
+    return new Scaffold(
+      appBar: new AppBar(
+        title: new Text('Food Facts'),
+      ),
+      body: new Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          new Column(
+            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+            children: [
+              new RaisedButton(
+                onPressed: scan,
+                child: new Text('Scan'),
+              ),
+              new RaisedButton(
+                onPressed: search,//('n5258948'),
+                child: new Text('Search'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+*/
