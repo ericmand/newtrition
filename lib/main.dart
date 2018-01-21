@@ -3,155 +3,135 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_circular_chart/flutter_circular_chart.dart';
+import 'package:barcode_scan/barcode_scan.dart';
 
-void main() {
-  runApp(new MyApp());
-}
+import 'config.dart' as config; // Optional. Used to store keys
 
-// Scanner output UPC codes
-// UPC fetch:
-  // input: UPC, outputs: ndbno
-  // data['list']['item'][0]['ndbno']
-// input: ndbno, outputs: food object that contains the 10 numbers
+void main() => runApp(new FoodFactsApp());
 
-// Text search input string text
-// input: string, output: list of foods that relates
-// input: ndbno, output: food object
-
-
-
-class Food {
-  String name;
-  int water;
-  int protein;
-  int fat;
-  int carbs;
-}
-
-class MyApp extends StatelessWidget {
+class FoodFactsApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return new MaterialApp(
-      home: new MyHomePage(),
+      home: new FoodFactsPage(),
     );
   }
 }
 
-class MyHomePage extends StatefulWidget {
-  MyHomePage({Key key}) : super(key: key);
-
+class FoodFactsPage extends StatefulWidget {
+  FoodFactsPage({Key key}) : super(key: key);
   @override
-  _MyHomePageState createState() => new _MyHomePageState();
+  _FoodFactsPageState createState() => new _FoodFactsPageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
-  var _ipAddress = 'Unknown';
+class _FoodFactsPageState extends State<FoodFactsPage> {
+  var name = 'Food Facts';
+  var water = 0.0;
+  var protein = 0.0;
+  var fat = 0.0;
+  var carbs = 0.0;
 
-  final GlobalKey<AnimatedCircularChartState> _chartKey =
+  final GlobalKey<AnimatedCircularChartState> _macroChartKey =
+  new GlobalKey<AnimatedCircularChartState>();
+  final GlobalKey<AnimatedCircularChartState> _microChartKey =
   new GlobalKey<AnimatedCircularChartState>();
 
   List<CircularStackEntry> data = <CircularStackEntry>[
     new CircularStackEntry(
       <CircularSegmentEntry>[
-        new CircularSegmentEntry(500.0, Colors.blue[200], rankKey: 'Water'),
-        new CircularSegmentEntry(1000.0, Colors.red[200], rankKey: 'Fat'),
-        new CircularSegmentEntry(2000.0, Colors.green[200], rankKey: 'Protein'),
-        new CircularSegmentEntry(1000.0, Colors.yellow[200], rankKey: 'Carbs'),
+        new CircularSegmentEntry(0.0, Colors.blue, rankKey: 'Water'),
+        new CircularSegmentEntry(0.0, Colors.red, rankKey: 'Fat'),
+        new CircularSegmentEntry(0.0, Colors.purple, rankKey: 'Protein'),
+        new CircularSegmentEntry(0.0, Colors.yellow, rankKey: 'Carbs'),
       ],
-      rankKey: 'Quarterly Profits',
+      rankKey: 'Calorics',
     ),
   ];
 
-  void _cycleSamples() {
+  scan() async {
+    String upc = await BarcodeScanner.scan();
+    upcLookup(upc);
+  }
+
+  upcLookup(upc) async {
+    var uri = new Uri.https('api.nal.usda.gov','/ndb/search/', {
+      'q': upc,
+      'format': 'json',
+      'api_key': config.usdaApiKey // Use 'DEMO_KEY' for testing
+    });
+    var data = await getAPI(uri);
+    ndbnoLookup(data['list']['item'][0]['ndbno']);
+    if (!mounted) return;
+  }
+
+  ndbnoLookup(ndbno) async {
+    var uri = new Uri.https('api.nal.usda.gov','/ndb/reports/', {
+      'ndbno': ndbno,
+      'format': 'json',
+      'api_key': config.usdaApiKey // Use 'DEMO_KEY' for testing
+    });
+    var data = await getAPI(uri);
+    setState(() {
+      name = data['report']['food']['name'];
+      for (var nutrient in data['report']['food']['nutrients']) {
+        if (nutrient['name'] == 'Protein') {
+          protein = double.parse(nutrient['value']);
+        } else if (nutrient['name'] == 'Total lipid (fat)') {
+          fat = double.parse(nutrient['value']);
+        } else if (nutrient['name'] == 'Carbohydrate, by difference') {
+          carbs = double.parse(nutrient['value']);
+        } else if (nutrient['name'] == 'Water') {
+          carbs = double.parse(nutrient['value']);
+        }
+      }
+      water = 100 - carbs - protein - fat;
+    });
+    updateChart();
+  }
+
+  updateChart() {
     List<CircularStackEntry> nextData = <CircularStackEntry>[
       new CircularStackEntry(
         <CircularSegmentEntry>[
-          new CircularSegmentEntry(1500.0, Colors.red[200], rankKey: 'Q1'),
-          new CircularSegmentEntry(750.0, Colors.green[200], rankKey: 'Q2'),
-          new CircularSegmentEntry(2000.0, Colors.blue[200], rankKey: 'Q3'),
-          new CircularSegmentEntry(1000.0, Colors.yellow[200], rankKey: 'Q4'),
+          new CircularSegmentEntry(fat, Colors.red, rankKey: 'Fat'),
+          new CircularSegmentEntry(protein, Colors.purple, rankKey: 'Protien'),
+          new CircularSegmentEntry(water, Colors.blue, rankKey: 'Water'),
+          new CircularSegmentEntry(carbs, Colors.yellow, rankKey: 'Carbs'),
         ],
-        rankKey: 'Quarterly Profits',
+        rankKey: 'Calorics',
       ),
     ];
     setState(() {
-      _chartKey.currentState.updateData(nextData);
+      _macroChartKey.currentState.updateData(nextData);
     });
   }
 
-  _upc_lookup(upc) {
-    var data = _upc_fetch(upc);
-    print(data);
-    setState(() {
-      _ipAddress = data.toString();
-    });
-    //return data //['list']['item'][0]['ndbno'];
-  }
-
-  _upc_fetch(upc) async {
-    var uri = new Uri.https('api.nal.usda.gov','/ndb/search/', {
-      'q': '791083622813',
-      'format': 'json',
-      'api_key': 'RCnEQqU9pmNEbaEzE5SQxQQ1VHbDZhQJYCvzAOkJ',
-    });
+  getAPI(uri) async {
     var httpClient = new HttpClient();
-
     String result;
-    var request = await httpClient.getUrl(uri);//Uri.parse(url));
-    var response = await request.close();
-    if (response.statusCode == HttpStatus.OK) {
-      var json = await response.transform(UTF8.decoder).join();
-      return JSON.decode(json);
-    } else { return 'fail';}
-  }
-
-  _getIPAddress() async {
-    //var url = 'https://api.nal.usda.gov/ndb/reports/?ndbno=01009&type=f&format=json&api_key=DEMO_KEY';
-    var uri = new Uri.https('api.nal.usda.gov','/ndb/reports/', {
-      'ndbno': '01009',
-      'format': 'json',
-      'type': 'f',
-      'api_key': 'DEMO_KEY',//'RCnEQqU9pmNEbaEzE5SQxQQ1VHbDZhQJYCvzAOkJ',
-    });
-    var httpClient = new HttpClient();
-
-    String result;
-    try {
-      var request = await httpClient.getUrl(uri);//Uri.parse(url));
+    try{
+      var request = await httpClient.getUrl(uri);
       var response = await request.close();
       if (response.statusCode == HttpStatus.OK) {
         var json = await response.transform(UTF8.decoder).join();
-        var data = JSON.decode(json);
-        result = data['report']['food']['nutrients'][0]['name'];
+        return JSON.decode(json);
       } else {
-
-        result =
-        'Error getting IP address:\nHttp status ${response.statusCode}';
+        print(response.statusCode);
+        return 'Error:\nHttp status ${response.statusCode}';
       }
     } catch (exception) {
       print(exception);
-      result = 'Failed getting IP address';
+      result = 'Failed: $exception';
     }
-
-    // If the widget was removed from the tree while the message was in flight,
-    // we want to discard the reply rather than calling setState to update our
-    // non-existent appearance.
-    if (!mounted) return;
-
-    setState(() {
-      _ipAddress = result;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    var spacer = new SizedBox(height: 32.0);
-
     return new Scaffold(
       appBar: new AppBar(
-        title: new Text('Food Facts'),
+        title: new Text(name),
         actions: [
-          new IconButton( // action button
+          new IconButton(
             icon: new Icon(Icons.search),
             onPressed: () {},
           ),
@@ -161,126 +141,25 @@ class _MyHomePageState extends State<MyHomePage> {
         child: new Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            new Text('$_ipAddress.'),
-            spacer,
-            new RaisedButton(
-              onPressed: _cycleSamples,
-              child: new Text('Get IP address'),
-            ),
             new AnimatedCircularChart(
-              key: _chartKey,
+              key: _macroChartKey,
               size: const Size(300.0, 300.0),
               initialChartData: data,
-              chartType: CircularChartType.Pie,
+              chartType: CircularChartType.Radial,
+            ),
+            new AnimatedCircularChart(
+              key: _microChartKey,
+              size: const Size(300.0, 300.0),
+              initialChartData: data,
+              chartType: CircularChartType.Radial,
             ),
           ],
         ),
       ),
       floatingActionButton: new FloatingActionButton(
           child: new Icon(Icons.scanner),
-          onPressed: _upc_lookup('791083622813'),
+          onPressed: scan,//_upc_lookup,
       ),
     );
   }
 }
-
-/*
-import 'dart:async';
-import 'dart:convert';
-import 'dart:io';
-import 'package:barcode_scan/barcode_scan.dart';
-import 'package:flutter/material.dart';
-
-void main() => runApp(new MyApp());
-
-class MyApp extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return new MaterialApp(
-      title: 'Food Facts',
-      theme: new ThemeData(
-        primarySwatch: Colors.blue,
-      ),
-      home: new ButtonPage(),
-    );
-  }
-}
-
-Future scan() async {
-  String barcode = await BarcodeScanner.scan();
-  //setState(() => this.barcode = barcode);
-}
-
-get() async {
-  var httpClient = new HttpClient();
-  var uri = new Uri.http(
-      'example.com', '/path1/path2', {'param1': '42', 'param2': 'foo'});
-  var request = await httpClient.getUrl(uri);
-  var response = await request.close();
-  var responseBody = await response.transform(UTF8.decoder).join();
-}
-
-Future getListFoods() async {
-  var httpClient = new HttpClient();
-  var uri = new Uri.https('api.nal.usda.gov','/ndb/search', {
-    //'http://example.com/', 'path1/path2', {'param1': '42', 'param2': 'foo'});
-    'format': 'json',
-    'q': 'query',
-    'sort': 'n',
-    'max': '25',
-    'offset': '0',
-    'api_key': 'RCnEQqU9pmNEbaEzE5SQxQQ1VHbDZhQJYCvzAOkJ'
-  });
-  var request = await httpClient.getUrl(uri);
-  var response = await request.close();
-  var responseBody = await response.transform(UTF8.decoder).join();
-}
-
-Future getFoodDetails() async {
-  var httpClient = new HttpClient();
-  var uri = new Uri.https('api.nal.usda.gov','/ndb/v2/reports', {
-    'ndbno': '01009',
-    'format': 'json',
-    'type': 'f',
-    'api_key': 'RCnEQqU9pmNEbaEzE5SQxQQ1VHbDZhQJYCvzAOkJ'
-  });
-  var request = await httpClient.getUrl(uri);
-  var response = await request.close();
-  var responseBody = await response.transform(UTF8.decoder).join();
-  print(responseBody);
-}
-
-search() {
-  var item = getFoodDetails();
-}
-//https://api.nal.usda.gov/ndb/V2/reports?ndbno=01009&ndbno=45202763&ndbno=35193&type=f&format=json&api_key=DEMO_KEY
-
-class ButtonPage extends StatelessWidget {
-  @override
-  Widget build(BuildContext context) {
-    return new Scaffold(
-      appBar: new AppBar(
-        title: new Text('Food Facts'),
-      ),
-      body: new Row(
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          new Column(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              new RaisedButton(
-                onPressed: scan,
-                child: new Text('Scan'),
-              ),
-              new RaisedButton(
-                onPressed: search,//('n5258948'),
-                child: new Text('Search'),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-*/
